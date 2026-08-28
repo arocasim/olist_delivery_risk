@@ -1,97 +1,130 @@
-# Olist Delivery Time Prediction
+# Olist Delivery Performance
 
-Predicting delivery time for Brazilian e-commerce orders
-(Olist dataset, ~96k delivered orders, 2016–2018).
+Python · pandas · scikit-learn · matplotlib · seaborn
 
-**Final model:** MAE 4.08 days on a time-based test set. That is 34% better than the
-naive baseline and 3x better than Olist's own estimate.
+I looked at 96,470 delivered orders from Olist, Brazil's largest marketplace, September 2016
+to August 2018.
 
-## Problem
+## Summary
 
-Olist shows a delivery date at checkout. But this date is made to be safe,
-not accurate: on average it is 11.5 days later than the real delivery, and
-even so 7.3% of orders still arrive late. This project builds a model that
-predicts the real delivery time in days.
+Olist gives every customer a delivery date at checkout. It hits that date 93% of the time, and
+pays for it with a 12-day buffer on average.
+
+Missing it is expensive. Late orders get 2.27 stars against 4.29 for on-time ones. Late
+deliveries are 6.7% of all orders and 32.5% of 1-2 star reviews.
+
+Most of them come from a small group. **50 sellers out of 2,954 cause 38% of all late
+deliveries.** That is the fastest thing to fix.
+
+I also tested whether a model could replace Olist's estimate. It predicts more accurately, MAE
+3.55 days against 4.42 for a per-state median. It still cannot promise better. To be on time
+as often as Olist, it has to promise 23.6 days against their 22.4.
+
+## Notebooks
+
+**[01_eda](notebooks/01_eda.ipynb)** — cleaning, delivery time, how good the promise is,
+geography and seasonality
+
+**[02_delivery_and_reviews](notebooks/02_delivery_and_reviews.ipynb)** — what a late delivery
+does to the review score, and where late orders come from
+
+**[03_prediction_model](notebooks/03_prediction_model.ipynb)** — can delivery time be
+predicted at checkout, and what a promise built on the model would look like
+
+## Where the 12 days go
 
 ![Olist estimate error](images/olist_estimate_error.png)
 
-*Almost the whole distribution sits right of zero: the estimate is a buffer,
-not a prediction. The small tail left of zero is the 7.3% of late orders.*
+Almost everything sits right of zero. The estimate works as a buffer. It tracks actual
+delivery at only 0.38 correlation.
 
-## Results
+One note on the metric. Olist's date carries a time of `00:00:00`, so an order arriving at 2pm
+on the promised day counts as late under a direct comparison, 8.11%. I read it as "by end of
+day D", the way a customer would, which gives 6.77%.
 
-| Model | MAE on test, days |
-|:-:|:-:|
-| **HGB tuned (final)** | **4.08** |
-| HGB + distance feature | 4.11 |
-| HistGradientBoosting | 4.19 |
-| RandomForest, 9 features | 4.53 |
-| Naive baseline (train mean) | 6.19 |
-| Olist estimate | 13.17 |
+## A late order costs two stars
+
+![Review score by delivery delay](images/score_by_delay.png)
+
+Coming early buys nothing. Scores hold at 4.1 to 4.3 whether the order arrived one day or two
+weeks ahead. Missing the date drops the score to 3.29 immediately, and after a week it settles
+at 1.7 and goes no lower.
+
+The penalty is one-sided, which explains the buffer. Early costs Olist nothing in reviews.
+Late costs them two stars.
+
+## It comes down to 50 sellers
+
+50 sellers out of 2,954 carry 2,441 late orders out of 6,381. The worst one carries 168.
+
+A seller shipping to Pará looks bad because of the distance, so I compared each seller against
+the average late rate on their own destinations. The ranking holds. The worst sellers ship to
+ordinary routes, 6 to 8% expected, and still run 17 to 29% late.
+
+Product category barely moves the number. Late rate runs 4.2% to 8.0% across categories,
+against 0% to 29% across sellers.
+
+Geography splits in two. The far North takes 19 to 27 days and misses the date only 3% of the
+time, because the estimate already covers the distance. The Northeast is slow and unreliable
+at once, AL is 21% late. RJ fits neither group: delivery is average at 15.3 days, yet 12%
+arrive late, on the second largest order volume in the country.
+
+![Late rate by month](images/late_rate_by_month.png)
+
+Late rate also tracks volume. Around 0.03 in a normal month, 0.12 in November 2017, 0.19 in
+March 2018.
+
+## Can a model do better?
+
+Measured on a time-based test set, June to August 2018:
+
+| | MAE, days |
+|---|---|
+| Naive train mean | 6.23 |
+| Per-state median | 4.42 |
+| **Final model, HGB + distance** | **3.55** |
+
+Olist's estimate scores 14.04 here, but it is built to avoid being late rather than to be
+accurate, so MAE is the wrong lens for it.
 
 ![Model comparison](images/model_comparison.png)
 
-*Each step is measured on the same time-based test set. The final model is
-34% better than the naive baseline and 3x better than Olist's own estimate,
-accurate enough to shrink the checkout buffer without increasing late orders.*
+I set the per-state median as the bar rather than the naive mean. A model that cannot beat a
+`groupby` is not worth having, and my first RandomForest did not beat it. The final model
+comes in 20% under the median.
 
-*Olist's 13.17 here is mean absolute error. The 11.5 days above is the average
-size of the buffer itself.*
+The biggest single gain came from matching the loss to the metric. Switching squared error to
+absolute error moved validation MAE from 5.09 to 4.52, more than any model or feature I tried.
+Tuning changed nothing.
 
-## Approach
+**A better prediction does not give a shorter promise.** A prediction sits in the middle of the
+distribution, so half the orders arrive after it. Turning it into a promise means adding a
+margin, and the margin has to cover the worst orders. Those are exactly what the model misses:
+R2 is 0.23, and orders that really take 30+ days get predicted at 10 to 20. Per-state margins
+help, from 10.3 days in SP to 30.2 in CE, but not enough to get under Olist's 22.4.
 
-**Data.** Nine raw CSVs joined into one order-level table. Items aggregated
-per order, product and seller attributes merged in, distance computed as
-haversine between customer and seller zip code centroids.
+## What I would recommend
 
-**Time-based split.** Orders sorted by purchase date, first 80% train, last
-20% test (Jun–Aug 2018). A random split would leak future orders into
-training. Hyperparameters tuned with TimeSeriesSplit inside the train set.
-The test set was used for evaluation only, never for fitting.
+1. **Start with the 50 sellers behind 38% of late deliveries.** The list is in notebook 02,
+   and it is the smallest change with the largest effect.
 
-**Features known at order time only.** No post-purchase signals like approval
-lag or carrier pickup. The model sees price, freight, weight, volume,
-category, customer and seller state, same_state, month, weekday, and
-customer-seller distance.
+2. **Widen the promise before known peaks.** November 2017 ran 7,237 orders against 4,446 the
+   month before, and late rate went from 0.04 to 0.12. The promise stayed the same.
 
-**Feature selection.** Dropping the 4 weakest features improved MAE from 4.75
-to 4.53. They added noise to the splits. Distance gave only a
-small gain, 4.19 to 4.11, because state and freight already carried the
-geography.
+3. **Set the margin per route.** SP needs 10 days, CE needs 30. One number cannot serve both.
 
-**Metric choice.** A few orders take 30+ days, and R2 squares the errors, so
-these few dominate it. RandomForest got R2 = −0.19 while its MAE was
-better than the naive baseline. MAE is the primary metric. Final model R2 = 0.09.
+4. **Do not replace the estimate with this model yet.** It predicts better and promises worse.
+   A working version would need per-route margins and refitting every season.
 
-## Known limitation
+## Method notes
 
-Median error 4.0 days, 75% of orders within 6.5. But ~1% of orders miss by
-more than 15 days, and true 30-day deliveries are predicted as 10–20. The
-cause of those delays is not in the order data.
+**Time-based split.** Train through May 2018, test on late May to August. A random split would
+leak future orders into training. Tuning ran with TimeSeriesSplit inside the training set, and
+the test set was scored once.
 
-![Actual vs predicted](images/actual_vs_predicted.png)
-
-*Fast deliveries are overestimated, slow ones underestimated. The model pulls
-everything toward the middle.*
-
-## Stack
-
-Python, pandas, scikit-learn, matplotlib. Data stored as Parquet.
-
-## Project structure
-
-```
-data/
-  raw/                  Olist dataset, 9 CSV files (not in repo)
-  clean/clean.parquet   merged and cleaned, ~96k orders x 42 columns
-notebooks/
-  01_eda.ipynb          cleaning, feature engineering, EDA
-  02_model.ipynb        baselines, model iteration, tuning
-models/
-  hgb_tuned.joblib      final model
-  features.joblib       feature list and order
-images/
-```
+**Only features known at checkout.** No approval time, no carrier pickup. Delivery time drops
+from 11-17 days in 2017 to 8-10 from July 2018, which is why test MAE comes in below
+validation MAE.
 
 ## Reproduce
 
@@ -99,10 +132,6 @@ images/
 pip install -r requirements.txt
 ```
 
-Create `data/raw/` and `data/clean/`, download the
-[Olist dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
-and unpack the CSVs into `data/raw/`.
-
-Run `notebooks/01_eda.ipynb` first, it builds `data/clean/clean.parquet`.
-Then run `notebooks/02_model.ipynb`, which trains and evaluates the models
-on that file.
+Download the [Olist dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) into
+`data/raw/` and run the notebooks in order. 01 builds `data/clean/clean.parquet`, which 02 and
+03 both read.
