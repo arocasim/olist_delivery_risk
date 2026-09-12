@@ -1,6 +1,6 @@
 # Olist Delivery Performance
 
-Python · pandas · scikit-learn · matplotlib · seaborn
+Python · pandas · scikit-learn · DuckDB · matplotlib · seaborn
 
 I looked at 96,470 delivered orders from Olist, Brazil's largest marketplace, September 2016
 to August 2018.
@@ -13,8 +13,12 @@ pays for it with a 12-day buffer on average.
 Missing it is expensive. Late orders get 2.27 stars against 4.29 for on-time ones. Late
 deliveries are 6.7% of all orders and 32.5% of 1-2 star reviews.
 
-Most of them come from a small group. **50 sellers out of 2,954 cause 38% of all late
-deliveries.** That is the fastest thing to fix.
+No small group explains them. The worst 16 sellers account for 5.1% of late deliveries once
+each is measured against their own routes. Geography and demand peaks explain more.
+
+It also shows up in repeat business. Customers whose first order arrived late come back 2.52%
+of the time against 3.04%. Priced out, that gap is about 4,046 over two years, so retention is
+not the argument for fixing delivery.
 
 I also tested whether a model could replace Olist's estimate. It predicts more accurately, MAE
 3.55 days against 4.42 for a per-state median. It still cannot promise better. To be on time
@@ -30,6 +34,9 @@ does to the review score, and where late orders come from
 
 **[03_prediction_model](notebooks/03_prediction_model.ipynb)** — can delivery time be
 predicted at checkout, and what a promise built on the model would look like
+
+**[04_sql_analysis](notebooks/04_sql_analysis.ipynb)** — the same questions in SQL, plus cohort
+retention and what a late first order does to repeat purchases
 
 ## Where the 12 days go
 
@@ -53,26 +60,33 @@ at 1.7 and goes no lower.
 The penalty is one-sided, which explains the buffer. Early costs Olist nothing in reviews.
 Late costs them two stars.
 
-## It comes down to 50 sellers
+## Where the late orders come from
 
-50 sellers out of 2,954 carry 2,441 late orders out of 6,381. The worst one carries 168.
+Not the sellers. Measured against the average late rate on their own destinations, 16 sellers
+carry 328 of 6,381 late deliveries, 5.1%. At the loosest threshold it reaches 11.8% and no
+further. Category explains as little, 4.2% to 8.0%.
 
-A seller shipping to Pará looks bad because of the distance, so I compared each seller against
-the average late rate on their own destinations. The ranking holds. The worst sellers ship to
-ordinary routes, 6 to 8% expected, and still run 17 to 29% late.
-
-Product category barely moves the number. Late rate runs 4.2% to 8.0% across categories,
-against 0% to 29% across sellers.
-
-Geography splits in two. The far North takes 19 to 27 days and misses the date only 3% of the
+Geography splits in two. The far North takes 19 to 27 days but misses the date only 3% of the
 time, because the estimate already covers the distance. The Northeast is slow and unreliable
-at once, AL is 21% late. RJ fits neither group: delivery is average at 15.3 days, yet 12%
-arrive late, on the second largest order volume in the country.
+at once, AL is 21% late. RJ fits neither: average delivery at 15.3 days, yet 12% late on the
+second largest volume in the country.
 
 ![Late rate by month](images/late_rate_by_month.png)
 
 Late rate also tracks volume. Around 0.03 in a normal month, 0.12 in November 2017, 0.19 in
 March 2018.
+
+## Nobody comes back
+
+3.12% of customers order twice. Month 1 retention sits between 0.2% and 0.7% across every
+cohort from January 2017 to August 2018, with no trend. The curve does not decay. It starts
+near zero.
+
+Of the 2,801 who return, 36.7% come back within a week. Most of that is one cart split across
+sellers rather than a second purchase. Median gap is 29 days.
+
+A late first order is followed by a lower repeat rate, 2.52% against 3.04%. Priced out, that
+gap is about 4,046 over two years, roughly 0.03% of revenue.
 
 ## Can a model do better?
 
@@ -105,16 +119,19 @@ help, from 10.3 days in SP to 30.2 in CE, but not enough to get under Olist's 22
 
 ## What I would recommend
 
-1. **Start with the 50 sellers behind 38% of late deliveries.** The list is in notebook 02,
-   and it is the smallest change with the largest effect.
-
-2. **Widen the promise before known peaks.** November 2017 ran 7,237 orders against 4,446 the
+1. **Widen the promise before known peaks.** November 2017 ran 7,237 orders against 4,446 the
    month before, and late rate went from 0.04 to 0.12. The promise stayed the same.
 
-3. **Set the margin per route.** SP needs 10 days, CE needs 30. One number cannot serve both.
+2. **Set the margin per route.** SP needs 10 days, CE needs 30. One number cannot serve both.
+
+3. **SLA for the 16 flagged sellers.** A small lever at 5.1% of late orders, but the list is
+   short and each seller is measured against their own routes. Notebook 02 has it.
 
 4. **Do not replace the estimate with this model yet.** It predicts better and promises worse.
    A working version would need per-route margins and refitting every season.
+
+5. **Do not build the case on retention.** The repeat-rate gap prices out at 4,046 over two
+   years. At a 3% repeat rate there is nothing to retain, and the argument stays with reviews.
 
 ## Method notes
 
@@ -134,4 +151,4 @@ pip install -r requirements.txt
 
 Download the [Olist dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) into
 `data/raw/` and run the notebooks in order. 01 builds `data/clean/clean.parquet`, which 02 and
-03 both read.
+03 both read. 04 queries the raw CSVs directly through DuckDB and does not depend on 01.
